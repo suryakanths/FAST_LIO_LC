@@ -17,6 +17,8 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   cv_bridge
   tf
+  tf2_ros
+  tf2_geometry_msgs
 )
 
 #find_package(Eigen3 REQUIRED)
@@ -67,6 +69,9 @@ target_link_libraries(alaserPGO
 
 add_executable(kittiHelper src/kittiHelper.cpp)
 target_link_libraries(kittiHelper ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+
+add_executable(cloud_to_2d_map src/cloud_to_2d_map.cpp)
+target_link_libraries(cloud_to_2d_map ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 
 

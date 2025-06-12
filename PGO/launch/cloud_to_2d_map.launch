@@ -1,0 +1,28 @@
+<launch>
+    <!-- 2D Map Generation Node -->
+    <node name="cloud_to_2d_map" pkg="aloam_velodyne" type="cloud_to_2d_map" output="screen">
+        <!-- Map parameters -->
+        <param name="map_resolution" value="0.1"/>        <!-- meters per pixel -->
+        <param name="map_width" value="200.0"/>           <!-- meters -->
+        <param name="map_height" value="200.0"/>          <!-- meters -->
+        
+        <!-- Height filtering -->
+        <param name="max_height" value="1.5"/>            <!-- ignore obstacles above 1.5m -->
+        <param name="min_height" value="-0.5"/>           <!-- ignore ground below -0.5m -->
+        
+        <!-- Frame settings -->
+        <param name="map_frame" value="camera_init"/>      <!-- map frame -->
+        <param name="cloud_frame" value=""/>               <!-- leave empty to use cloud header frame -->
+        
+        <!-- Occupancy grid thresholds -->
+        <param name="occupied_threshold" value="0.6"/>     <!-- probability threshold for occupied -->
+        <param name="free_threshold" value="0.25"/>        <!-- probability threshold for free -->
+        <param name="min_hit_count" value="3"/>            <!-- minimum hits to consider occupied -->
+    </node>
+    
+    <!-- Optional: Launch RViz with 2D map visualization -->
+    <arg name="rviz" default="false"/>
+    <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz" 
+          args="-d $(find aloam_velodyne)/rviz_cfg/2d_mapping.rviz"/>
+          
+</launch>

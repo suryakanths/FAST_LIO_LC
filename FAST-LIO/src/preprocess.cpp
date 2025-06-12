@@ -230,7 +230,7 @@ void Preprocess::oust64_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
   {
     double time_stamp = msg->header.stamp.toSec();
     // cout << "===================================" << endl;
-    // printf("Pt size = %d, N_SCANS = %d\r\n", plsize, N_SCANS);
+    ROS_INFO_STREAM_THROTTLE(30,"Ouster64 point cloud size: " << pl_orig.points.size() << ", time: " << time_stamp);
     for (int i = 0; i < pl_orig.points.size(); i++)
     {
       if (i % point_filter_num != 0) continue;

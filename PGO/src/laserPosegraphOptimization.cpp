@@ -20,6 +20,7 @@
 #include <iostream>
 #include <string>
 #include <optional>
+#include <cmath>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -287,6 +288,17 @@ Pose6D getOdom(nav_msgs::Odometry::ConstPtr _odom)
     geometry_msgs::Quaternion quat = _odom->pose.pose.orientation;
     tf::Matrix3x3(tf::Quaternion(quat.x, quat.y, quat.z, quat.w)).getRPY(roll, pitch, yaw);
 
+    // Validate pose components
+    if (!std::isfinite(tx) || !std::isfinite(ty) || !std::isfinite(tz) ||
+        !std::isfinite(roll) || !std::isfinite(pitch) || !std::isfinite(yaw)) {
+        std::cout << "[ERROR] Invalid odometry data detected: pos=(" 
+                  << tx << ", " << ty << ", " << tz << "), rpy=(" 
+                  << roll << ", " << pitch << ", " << yaw << ")" << std::endl;
+        // Return a default/previous valid pose instead of invalid data
+        // For now, return zero pose but in production you might want to use last valid pose
+        return Pose6D{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, _odom->header.seq};
+    }
+
     return Pose6D{tx, ty, tz, roll, pitch, yaw, _odom->header.seq}; 
 } // getOdom
 
@@ -307,8 +319,17 @@ pcl::PointCloud<PointType>::Ptr local2global(const pcl::PointCloud<PointType>::P
 {
     pcl::PointCloud<PointType>::Ptr cloudOut(new pcl::PointCloud<PointType>());
 
+    // Validate transformation pose
+    if (!std::isfinite(tf.x) || !std::isfinite(tf.y) || !std::isfinite(tf.z) ||
+        !std::isfinite(tf.roll) || !std::isfinite(tf.pitch) || !std::isfinite(tf.yaw)) {
+        std::cout << "[ERROR] Invalid transformation pose in local2global: pos=(" 
+                  << tf.x << ", " << tf.y << ", " << tf.z << "), rpy=(" 
+                  << tf.roll << ", " << tf.pitch << ", " << tf.yaw << ")" << std::endl;
+        return cloudOut; // Return empty cloud
+    }
+
     int cloudSize = cloudIn->size();
-    cloudOut->resize(cloudSize);
+    cloudOut->reserve(cloudSize); // Reserve space but don't resize yet
 
     Eigen::Affine3f transCur = pcl::getTransformation(tf.x, tf.y, tf.z, tf.roll, tf.pitch, tf.yaw);
     
@@ -317,11 +338,30 @@ pcl::PointCloud<PointType>::Ptr local2global(const pcl::PointCloud<PointType>::P
     for (int i = 0; i < cloudSize; ++i)
     {
         const auto &pointFrom = cloudIn->points[i];
-        cloudOut->points[i].x = transCur(0,0) * pointFrom.x + transCur(0,1) * pointFrom.y + transCur(0,2) * pointFrom.z + transCur(0,3);
-        cloudOut->points[i].y = transCur(1,0) * pointFrom.x + transCur(1,1) * pointFrom.y + transCur(1,2) * pointFrom.z + transCur(1,3);
-        cloudOut->points[i].z = transCur(2,0) * pointFrom.x + transCur(2,1) * pointFrom.y + transCur(2,2) * pointFrom.z + transCur(2,3);
-        cloudOut->points[i].intensity = pointFrom.intensity;
+        
+        // Validate input point coordinates
+        if (!std::isfinite(pointFrom.x) || !std::isfinite(pointFrom.y) || !std::isfinite(pointFrom.z)) {
+            continue; // Skip invalid points
+        }
+        
+        PointType pointTo;
+        pointTo.x = transCur(0,0) * pointFrom.x + transCur(0,1) * pointFrom.y + transCur(0,2) * pointFrom.z + transCur(0,3);
+        pointTo.y = transCur(1,0) * pointFrom.x + transCur(1,1) * pointFrom.y + transCur(1,2) * pointFrom.z + transCur(1,3);
+        pointTo.z = transCur(2,0) * pointFrom.x + transCur(2,1) * pointFrom.y + transCur(2,2) * pointFrom.z + transCur(2,3);
+        pointTo.intensity = pointFrom.intensity;
+        
+        // Validate transformed point coordinates
+        if (std::isfinite(pointTo.x) && std::isfinite(pointTo.y) && std::isfinite(pointTo.z)) {
+            #pragma omp critical
+            {
+                cloudOut->points.push_back(pointTo);
+            }
+        }
     }
+
+    cloudOut->width = cloudOut->points.size();
+    cloudOut->height = 1;
+    cloudOut->is_dense = true;
 
     return cloudOut;
 }
@@ -332,12 +372,32 @@ void pubPath( void )
     nav_msgs::Odometry odomAftPGO;
     nav_msgs::Path pathAftPGO;
     pathAftPGO.header.frame_id = "camera_init";
+    
+    // Initialize with a valid default pose
+    odomAftPGO.header.frame_id = "camera_init";
+    odomAftPGO.child_frame_id = "/aft_pgo";
+    odomAftPGO.header.stamp = ros::Time::now();
+    odomAftPGO.pose.pose.position.x = 0.0;
+    odomAftPGO.pose.pose.position.y = 0.0;
+    odomAftPGO.pose.pose.position.z = 0.0;
+    odomAftPGO.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(0.0, 0.0, 0.0);
+    
     mKF.lock(); 
     // for (int node_idx=0; node_idx < int(keyframePosesUpdated.size()) - 1; node_idx++) // -1 is just delayed visualization (because sometimes mutexed while adding(push_back) a new one)
     for (int node_idx=0; node_idx < recentIdxUpdated; node_idx++) // -1 is just delayed visualization (because sometimes mutexed while adding(push_back) a new one)
     {
         const Pose6D& pose_est = keyframePosesUpdated.at(node_idx); // upodated poses
         // const gtsam::Pose3& pose_est = isamCurrentEstimate.at<gtsam::Pose3>(node_idx);
+
+        // Validate pose before publishing
+        if (!std::isfinite(pose_est.x) || !std::isfinite(pose_est.y) || !std::isfinite(pose_est.z) ||
+            !std::isfinite(pose_est.roll) || !std::isfinite(pose_est.pitch) || !std::isfinite(pose_est.yaw)) {
+            std::cout << "[WARNING] Invalid pose at node " << node_idx 
+                      << ": pos=(" << pose_est.x << ", " << pose_est.y << ", " << pose_est.z 
+                      << "), rpy=(" << pose_est.roll << ", " << pose_est.pitch << ", " << pose_est.yaw 
+                      << "). Skipping this pose in path." << std::endl;
+            continue;
+        }
 
         nav_msgs::Odometry odomAftPGOthis;
         odomAftPGOthis.header.frame_id = "camera_init";
@@ -358,19 +418,40 @@ void pubPath( void )
         pathAftPGO.poses.push_back(poseStampAftPGO);
     }
     mKF.unlock(); 
-    pubOdomAftPGO.publish(odomAftPGO); // last pose 
-    pubPathAftPGO.publish(pathAftPGO); // poses 
+    
+    // Validate final pose before publishing transform
+    bool validFinalPose = std::isfinite(odomAftPGO.pose.pose.position.x) && 
+                         std::isfinite(odomAftPGO.pose.pose.position.y) && 
+                         std::isfinite(odomAftPGO.pose.pose.position.z) &&
+                         std::isfinite(odomAftPGO.pose.pose.orientation.x) &&
+                         std::isfinite(odomAftPGO.pose.pose.orientation.y) &&
+                         std::isfinite(odomAftPGO.pose.pose.orientation.z) &&
+                         std::isfinite(odomAftPGO.pose.pose.orientation.w);
+    
+    if (validFinalPose) {
+        pubOdomAftPGO.publish(odomAftPGO); // last pose 
+        pubPathAftPGO.publish(pathAftPGO); // poses 
 
-    static tf::TransformBroadcaster br;
-    tf::Transform transform;
-    tf::Quaternion q;
-    transform.setOrigin(tf::Vector3(odomAftPGO.pose.pose.position.x, odomAftPGO.pose.pose.position.y, odomAftPGO.pose.pose.position.z));
-    q.setW(odomAftPGO.pose.pose.orientation.w);
-    q.setX(odomAftPGO.pose.pose.orientation.x);
-    q.setY(odomAftPGO.pose.pose.orientation.y);
-    q.setZ(odomAftPGO.pose.pose.orientation.z);
-    transform.setRotation(q);
-    br.sendTransform(tf::StampedTransform(transform, odomAftPGO.header.stamp, "camera_init", "/aft_pgo"));
+        static tf::TransformBroadcaster br;
+        tf::Transform transform;
+        tf::Quaternion q;
+        transform.setOrigin(tf::Vector3(odomAftPGO.pose.pose.position.x, odomAftPGO.pose.pose.position.y, odomAftPGO.pose.pose.position.z));
+        q.setW(odomAftPGO.pose.pose.orientation.w);
+        q.setX(odomAftPGO.pose.pose.orientation.x);
+        q.setY(odomAftPGO.pose.pose.orientation.y);
+        q.setZ(odomAftPGO.pose.pose.orientation.z);
+        transform.setRotation(q);
+        br.sendTransform(tf::StampedTransform(transform, odomAftPGO.header.stamp, "camera_init", "/aft_pgo"));
+    } else {
+        std::cout << "[ERROR] Final pose contains invalid values. Skipping transform publication." << std::endl;
+        std::cout << "  Position: (" << odomAftPGO.pose.pose.position.x 
+                  << ", " << odomAftPGO.pose.pose.position.y 
+                  << ", " << odomAftPGO.pose.pose.position.z << ")" << std::endl;
+        std::cout << "  Orientation: (" << odomAftPGO.pose.pose.orientation.x 
+                  << ", " << odomAftPGO.pose.pose.orientation.y 
+                  << ", " << odomAftPGO.pose.pose.orientation.z 
+                  << ", " << odomAftPGO.pose.pose.orientation.w << ")" << std::endl;
+    }
 } // pubPath
 
 void updatePoses(void)
@@ -379,19 +460,44 @@ void updatePoses(void)
     for (int node_idx=0; node_idx < int(isamCurrentEstimate.size()); node_idx++)
     {
         Pose6D& p =keyframePosesUpdated[node_idx];
-        p.x = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).translation().x();
-        p.y = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).translation().y();
-        p.z = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).translation().z();
-        p.roll = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).rotation().roll();
-        p.pitch = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).rotation().pitch();
-        p.yaw = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).rotation().yaw();
+        double new_x = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).translation().x();
+        double new_y = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).translation().y();
+        double new_z = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).translation().z();
+        double new_roll = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).rotation().roll();
+        double new_pitch = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).rotation().pitch();
+        double new_yaw = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).rotation().yaw();
+        
+        // Validate updated pose values
+        if (std::isfinite(new_x) && std::isfinite(new_y) && std::isfinite(new_z) &&
+            std::isfinite(new_roll) && std::isfinite(new_pitch) && std::isfinite(new_yaw)) {
+            p.x = new_x;
+            p.y = new_y;
+            p.z = new_z;
+            p.roll = new_roll;
+            p.pitch = new_pitch;
+            p.yaw = new_yaw;
+        } else {
+            std::cout << "[ERROR] Invalid optimized pose for node " << node_idx 
+                      << ": pos=(" << new_x << ", " << new_y << ", " << new_z 
+                      << "), rpy=(" << new_roll << ", " << new_pitch << ", " << new_yaw 
+                      << "). Keeping previous values." << std::endl;
+        }
     }
     mKF.unlock();
 
     mtxRecentPose.lock();
     const gtsam::Pose3& lastOptimizedPose = isamCurrentEstimate.at<gtsam::Pose3>(int(isamCurrentEstimate.size())-1);
-    recentOptimizedX = lastOptimizedPose.translation().x();
-    recentOptimizedY = lastOptimizedPose.translation().y();
+    double opt_x = lastOptimizedPose.translation().x();
+    double opt_y = lastOptimizedPose.translation().y();
+    
+    // Validate recent optimized pose
+    if (std::isfinite(opt_x) && std::isfinite(opt_y)) {
+        recentOptimizedX = opt_x;
+        recentOptimizedY = opt_y;
+    } else {
+        std::cout << "[ERROR] Invalid recent optimized pose: (" << opt_x << ", " << opt_y 
+                  << "). Keeping previous values." << std::endl;
+    }
 
     recentIdxUpdated = int(keyframePosesUpdated.size()) - 1;
 
@@ -419,10 +525,19 @@ pcl::PointCloud<PointType>::Ptr transformPointCloud(pcl::PointCloud<PointType>::
 {
     pcl::PointCloud<PointType>::Ptr cloudOut(new pcl::PointCloud<PointType>());
 
+    // Validate transformation
+    auto translation = transformIn.translation();
+    auto rotation = transformIn.rotation();
+    if (!std::isfinite(translation.x()) || !std::isfinite(translation.y()) || !std::isfinite(translation.z()) ||
+        !std::isfinite(rotation.roll()) || !std::isfinite(rotation.pitch()) || !std::isfinite(rotation.yaw())) {
+        std::cout << "[ERROR] Invalid gtsam::Pose3 transformation in transformPointCloud" << std::endl;
+        return cloudOut; // Return empty cloud
+    }
+
     PointType *pointFrom;
 
     int cloudSize = cloudIn->size();
-    cloudOut->resize(cloudSize);
+    cloudOut->reserve(cloudSize); // Reserve space but don't resize yet
 
     Eigen::Affine3f transCur = pcl::getTransformation(
                                     transformIn.translation().x(), transformIn.translation().y(), transformIn.translation().z(), 
@@ -433,11 +548,31 @@ pcl::PointCloud<PointType>::Ptr transformPointCloud(pcl::PointCloud<PointType>::
     for (int i = 0; i < cloudSize; ++i)
     {
         pointFrom = &cloudIn->points[i];
-        cloudOut->points[i].x = transCur(0,0) * pointFrom->x + transCur(0,1) * pointFrom->y + transCur(0,2) * pointFrom->z + transCur(0,3);
-        cloudOut->points[i].y = transCur(1,0) * pointFrom->x + transCur(1,1) * pointFrom->y + transCur(1,2) * pointFrom->z + transCur(1,3);
-        cloudOut->points[i].z = transCur(2,0) * pointFrom->x + transCur(2,1) * pointFrom->y + transCur(2,2) * pointFrom->z + transCur(2,3);
-        cloudOut->points[i].intensity = pointFrom->intensity;
+        
+        // Validate input point coordinates
+        if (!std::isfinite(pointFrom->x) || !std::isfinite(pointFrom->y) || !std::isfinite(pointFrom->z)) {
+            continue; // Skip invalid points
+        }
+        
+        PointType pointTo;
+        pointTo.x = transCur(0,0) * pointFrom->x + transCur(0,1) * pointFrom->y + transCur(0,2) * pointFrom->z + transCur(0,3);
+        pointTo.y = transCur(1,0) * pointFrom->x + transCur(1,1) * pointFrom->y + transCur(1,2) * pointFrom->z + transCur(1,3);
+        pointTo.z = transCur(2,0) * pointFrom->x + transCur(2,1) * pointFrom->y + transCur(2,2) * pointFrom->z + transCur(2,3);
+        pointTo.intensity = pointFrom->intensity;
+        
+        // Validate transformed point coordinates
+        if (std::isfinite(pointTo.x) && std::isfinite(pointTo.y) && std::isfinite(pointTo.z)) {
+            #pragma omp critical
+            {
+                cloudOut->points.push_back(pointTo);
+            }
+        }
     }
+    
+    cloudOut->width = cloudOut->points.size();
+    cloudOut->height = 1;
+    cloudOut->is_dense = true;
+    
     return cloudOut;
 } // transformPointCloud
 
@@ -499,6 +634,14 @@ void loopFindNearKeyframes(pcl::PointCloud<PointType>::Ptr& nearKeyframes, const
 */
 Eigen::Affine3f Pose6dToAffine3f(Pose6D pose)
 { 
+    // Validate pose values before transformation
+    if (!std::isfinite(pose.x) || !std::isfinite(pose.y) || !std::isfinite(pose.z) ||
+        !std::isfinite(pose.roll) || !std::isfinite(pose.pitch) || !std::isfinite(pose.yaw)) {
+        std::cout << "[ERROR] Invalid Pose6D in Pose6dToAffine3f: pos=(" 
+                  << pose.x << ", " << pose.y << ", " << pose.z << "), rpy=(" 
+                  << pose.roll << ", " << pose.pitch << ", " << pose.yaw << ")" << std::endl;
+        return Eigen::Affine3f::Identity(); // Return identity transformation
+    }
     return pcl::getTransformation(pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw);
 }
 
@@ -507,6 +650,14 @@ Eigen::Affine3f Pose6dToAffine3f(Pose6D pose)
 */
 gtsam::Pose3 Pose6dTogtsamPose3(Pose6D pose)
 {
+    // Validate pose values before transformation
+    if (!std::isfinite(pose.x) || !std::isfinite(pose.y) || !std::isfinite(pose.z) ||
+        !std::isfinite(pose.roll) || !std::isfinite(pose.pitch) || !std::isfinite(pose.yaw)) {
+        std::cout << "[ERROR] Invalid Pose6D in Pose6dTogtsamPose3: pos=(" 
+                  << pose.x << ", " << pose.y << ", " << pose.z << "), rpy=(" 
+                  << pose.roll << ", " << pose.pitch << ", " << pose.yaw << ")" << std::endl;
+        return gtsam::Pose3(); // Return identity pose
+    }
     return gtsam::Pose3(gtsam::Rot3::RzRyRx(double(pose.roll), double(pose.pitch), double(pose.yaw)),
                                 gtsam::Point3(double(pose.x),    double(pose.y),     double(pose.z)));
 }
@@ -523,6 +674,54 @@ gtsam::Pose3 doICPVirtualRelative( int _loop_kf_idx, int _curr_kf_idx )
     loopFindNearKeyframes(cureKeyframeCloud, _curr_kf_idx, 0);
     // 提取闭环匹配关键帧前后相邻若干帧的关键帧特征点集合，降采样
     loopFindNearKeyframes(targetKeyframeCloud, _loop_kf_idx, historyKeyframeSearchNum);
+
+    // Validate point clouds before ICP operations
+    if (cureKeyframeCloud->empty() || targetKeyframeCloud->empty()) {
+        std::cout << "[ERROR] Empty point clouds in doICPVirtualRelative: source=" 
+                  << cureKeyframeCloud->size() << ", target=" << targetKeyframeCloud->size() << std::endl;
+        return gtsam::Pose3();
+    }
+
+    // Filter out invalid points from source cloud
+    pcl::PointCloud<PointType>::Ptr validCureCloud(new pcl::PointCloud<PointType>());
+    validCureCloud->reserve(cureKeyframeCloud->size());
+    for (const auto& point : cureKeyframeCloud->points) {
+        if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
+            validCureCloud->points.push_back(point);
+        }
+    }
+    validCureCloud->width = validCureCloud->points.size();
+    validCureCloud->height = 1;
+    validCureCloud->is_dense = true;
+
+    // Filter out invalid points from target cloud
+    pcl::PointCloud<PointType>::Ptr validTargetCloud(new pcl::PointCloud<PointType>());
+    validTargetCloud->reserve(targetKeyframeCloud->size());
+    for (const auto& point : targetKeyframeCloud->points) {
+        if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
+            validTargetCloud->points.push_back(point);
+        }
+    }
+    validTargetCloud->width = validTargetCloud->points.size();
+    validTargetCloud->height = 1;
+    validTargetCloud->is_dense = true;
+
+    // Check if we have enough valid points for ICP
+    if (validCureCloud->empty() || validTargetCloud->empty() ||
+        validCureCloud->size() < 100 || validTargetCloud->size() < 100) {
+        std::cout << "[ERROR] Insufficient valid points for ICP: source=" 
+                  << validCureCloud->size() << ", target=" << validTargetCloud->size() 
+                  << " (original: " << cureKeyframeCloud->size() << ", " << targetKeyframeCloud->size() << ")" << std::endl;
+        return gtsam::Pose3();
+    }
+
+    std::cout << "[INFO] ICP with validated point clouds: source=" 
+              << validCureCloud->size() << "/" << cureKeyframeCloud->size() 
+              << ", target=" << validTargetCloud->size() << "/" << targetKeyframeCloud->size() << std::endl;
+
+    // Use validated point clouds for visualization
+    cureKeyframeCloud = validCureCloud;
+    targetKeyframeCloud = validTargetCloud;
 
     // loop verification 
     sensor_msgs::PointCloud2 cureKeyframeCloudMsg;
@@ -543,11 +742,17 @@ gtsam::Pose3 doICPVirtualRelative( int _loop_kf_idx, int _curr_kf_idx )
     icp.setEuclideanFitnessEpsilon(1e-6);
     icp.setRANSACIterations(0);
 
-    // Align pointclouds
-    icp.setInputSource(cureKeyframeCloud);
+    // Align pointclouds using validated clouds
+    icp.setInputSource(cureKeyframeCloud);  // These are now the validated clouds
     icp.setInputTarget(targetKeyframeCloud);
     pcl::PointCloud<PointType>::Ptr unused_result(new pcl::PointCloud<PointType>());
-    icp.align(*unused_result);
+    
+    try {
+        icp.align(*unused_result);
+    } catch (const std::exception& e) {
+        std::cout << "[ERROR] ICP alignment failed with exception: " << e.what() << std::endl;
+        return gtsam::Pose3();
+    }
 
     sensor_msgs::PointCloud2 cureKeyframeCloudRegMsg;
     pcl::toROSMsg(*unused_result, cureKeyframeCloudRegMsg);
@@ -557,7 +762,7 @@ gtsam::Pose3 doICPVirtualRelative( int _loop_kf_idx, int _curr_kf_idx )
     // float loopFitnessScoreThreshold = 0.3; // user parameter but fixed low value is safe. 
     if (icp.hasConverged() == false || icp.getFitnessScore() > loopFitnessScoreThreshold) {
         std::cout << "[SC loop] ICP fitness test failed (" << icp.getFitnessScore() << " > " << loopFitnessScoreThreshold << "). Reject this SC loop." << std::endl;
-        return gtsam::Pose3::identity();
+        return gtsam::Pose3();
     } else {
         std::cout << "[SC loop] ICP fitness test passed (" << icp.getFitnessScore() << " < " << loopFitnessScoreThreshold << "). Add this SC loop." << std::endl;
     }
@@ -765,7 +970,13 @@ void performSCLoopClosure(void)
 pcl::PointCloud<pcl::PointXYZ>::Ptr vector2pc(const std::vector<Pose6D> vectorPose6d){
     pcl::PointCloud<pcl::PointXYZ>::Ptr res( new pcl::PointCloud<pcl::PointXYZ> ) ;
     for( auto p : vectorPose6d){
-        res->points.emplace_back(p.x, p.y, p.z);
+        // Validate point coordinates to prevent KdTree assertion errors
+        if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)) {
+            res->points.emplace_back(p.x, p.y, p.z);
+        } else {
+            std::cout << "[WARNING] Invalid pose coordinates detected: (" 
+                      << p.x << ", " << p.y << ", " << p.z << "). Skipping this pose." << std::endl;
+        }
     }
     return res;
 }
@@ -786,11 +997,35 @@ bool detectLoopClosureDistance(int *loopKeyCur, int *loopKeyPre)
 
     // 在历史关键帧中查找与当前关键帧距离最近的关键帧集合
     pcl::PointCloud<pcl::PointXYZ>::Ptr copy_cloudKeyPoses3D = vector2pc(keyframePoses);
+    
+    // Validate that we have sufficient valid points and that the query point is valid
+    if (copy_cloudKeyPoses3D->points.empty()) {
+        std::cout << "[WARNING] No valid keyframe poses available for loop closure detection." << std::endl;
+        return false;
+    }
+    
+    // Validate the query point (last pose)
+    const auto& lastPose = copy_cloudKeyPoses3D->back();
+    if (!std::isfinite(lastPose.x) || !std::isfinite(lastPose.y) || !std::isfinite(lastPose.z)) {
+        std::cout << "[WARNING] Invalid query pose coordinates: (" 
+                  << lastPose.x << ", " << lastPose.y << ", " << lastPose.z 
+                  << "). Skipping loop closure detection." << std::endl;
+        return false;
+    }
+    ROS_INFO_STREAM("Loop closure detection for keyframe " << *loopKeyCur << " with position: ("
+                                                           << lastPose.x << ", " << lastPose.y << ", " << lastPose.z << ")");
+    for (auto point : copy_cloudKeyPoses3D->points)
+    {
+        std::cout << "[WARNING] Invalid keyframe pose coordinates detected: ("
+                  << point.x << ", " << point.y << ", " << point.z
+                  << "). Skipping this pose." << std::endl;
+    }
     std::vector<int> pointSearchIndLoop;
     std::vector<float> pointSearchSqDisLoop;
+    ROS_INFO_STREAM("Searching for loop closure candidates within radius: " << historyKeyframeSearchRadius);
     kdtreeHistoryKeyPoses->setInputCloud(copy_cloudKeyPoses3D);
     kdtreeHistoryKeyPoses->radiusSearch(copy_cloudKeyPoses3D->back(), historyKeyframeSearchRadius, pointSearchIndLoop, pointSearchSqDisLoop, 0);
-    
+    ROS_INFO_STREAM("Found " << pointSearchIndLoop.size() << " candidates for loop closure.");
     // 在候选关键帧集合中，找到与当前帧时间相隔较远的帧，设为候选匹配帧
     for(int i = 0; i < pointSearchIndLoop.size(); ++i)
     {
@@ -919,7 +1154,7 @@ void process_icp(void)
             const int curr_node_idx = loop_idx_pair.second;
             auto relative_pose = doICPVirtualRelative(prev_node_idx, curr_node_idx);
             // if( !gtsam::Pose3::equals(relative_pose, gtsam::Pose3::identity()) ) {
-            if( !relative_pose.equals( gtsam::Pose3::identity() )) {
+            if( !relative_pose.equals( gtsam::Pose3() )) {
                 // gtsam::Pose3 relative_pose = relative_pose_optional.value();
                 mtxPosegraph.lock();
                 gtSAMgraph.add(gtsam::BetweenFactor<gtsam::Pose3>(curr_node_idx, prev_node_idx, relative_pose, robustLoopNoise));
@@ -1008,14 +1243,29 @@ int main(int argc, char **argv)
 	ros::init(argc, argv, "laserPGO");
 	ros::NodeHandle nh;
 
-	nh.param<std::string>("save_directory", save_directory, "/"); // pose assignment every k m move 
+    nh.param<std::string>("save_directory", save_directory, "/home/surya/workspaces/slam_ws/src/FAST_LIO_LC/"); // pose assignment every k m move 
+    
+    // Ensure save_directory ends with '/'
+    if (!save_directory.empty() && save_directory.back() != '/') {
+        save_directory += "/";
+    }
+    
     pgKITTIformat = save_directory + "optimized_poses.txt";
     odomKITTIformat = save_directory + "odom_poses.txt";
     pgTimeSaveStream = std::fstream(save_directory + "times.txt", std::fstream::out); 
     pgTimeSaveStream.precision(std::numeric_limits<double>::max_digits10);
     pgScansDirectory = save_directory + "Scans/";
-    auto unused = system((std::string("exec rm -r ") + pgScansDirectory).c_str());
-    unused = system((std::string("mkdir -p ") + pgScansDirectory).c_str());
+    
+    // Check if directory creation was successful
+    int result1 = system((std::string("rm -rf ") + pgScansDirectory).c_str());
+    int result2 = system((std::string("mkdir -p ") + pgScansDirectory).c_str());
+    
+    if (result2 != 0) {
+        ROS_ERROR("Failed to create directory: %s", pgScansDirectory.c_str());
+        ROS_ERROR("Please check directory permissions or use a different save_directory parameter");
+    } else {
+        ROS_INFO("Created scan directory: %s", pgScansDirectory.c_str());
+    }
 
 	nh.param<double>("keyframe_meter_gap", keyframeMeterGap, 2.0); // pose assignment every k m move 
 	nh.param<double>("keyframe_deg_gap", keyframeDegGap, 10.0); // pose assignment every k deg rot 

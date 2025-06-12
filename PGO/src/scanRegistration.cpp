@@ -41,7 +41,7 @@
 #include "aloam_velodyne/common.h"
 #include "aloam_velodyne/tic_toc.h"
 #include <nav_msgs/Odometry.h>
-#include <opencv/cv.h>
+#include <opencv2/opencv.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -170,36 +170,43 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
         if (LIDAR_TYPE == "VLP16" && N_SCANS == 16)
         {
-            scanID = int((angle + 15) / 2 + 0.5);
+            scanID = int((angle + 22.5) / 2.8125 + 0.5); // ouster os1-16 vfov is [-22.5, 22.5] with 16 channels
             if (scanID > (N_SCANS - 1) || scanID < 0)
             {
+                ROS_INFO("OS1-16: Point with angle %f rejected, scanID %d out of range [0, %d]", angle, scanID, N_SCANS - 1);
                 count--;
                 continue;
             }
+            ROS_INFO("OS1-16: Point with angle %f assigned to scanID %d", angle, scanID);
         }
         else if (LIDAR_TYPE == "HDL32" && N_SCANS == 32)
         {
             scanID = int((angle + 92.0/3.0) * 3.0 / 4.0);
             if (scanID > (N_SCANS - 1) || scanID < 0)
             {
-                count--;
-                continue;
+            ROS_DEBUG("HDL32: Point with angle %f rejected, scanID %d out of range [0, %d]", angle, scanID, N_SCANS - 1);
+            count--;
+            continue;
             }
+            ROS_DEBUG("HDL32: Point with angle %f assigned to scanID %d", angle, scanID);
         }
         // HDL64 (e.g., KITTI)
         else if (LIDAR_TYPE == "HDL64" && N_SCANS == 64)
         {   
             if (angle >= -8.83)
-                scanID = int((2 - angle) * 3.0 + 0.5);
+            scanID = int((2 - angle) * 3.0 + 0.5);
             else
-                scanID = N_SCANS / 2 + int((-8.83 - angle) * 2.0 + 0.5);
+            scanID = N_SCANS / 2 + int((-8.83 - angle) * 2.0 + 0.5);
 
             // use [0 50]  > 50 remove outlies 
             if (angle > 2 || angle < -24.33 || scanID > 50 || scanID < 0)
             {
-                count--;
-                continue;
+            ROS_DEBUG("HDL64: Point with angle %f rejected, scanID %d (limits: angle [%f, %f], scanID [0, 50])", 
+                 angle, scanID, -24.33, 2.0);
+            count--;
+            continue;
             }
+            ROS_DEBUG("HDL64: Point with angle %f assigned to scanID %d", angle, scanID);
         }
         // Ouster OS1-64 (e.g., MulRan)
         else if (LIDAR_TYPE == "OS1-64" && N_SCANS == 64)
@@ -207,13 +214,16 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             scanID = int((angle + 22.5) / 2 + 0.5); // ouster os1-64 vfov is [-22.5, 22.5] see https://ouster.com/products/os1-lidar-sensor/
             if (scanID > (N_SCANS - 1) || scanID < 0)
             {
-                count--;
-                continue;
+            ROS_DEBUG("OS1-64: Point with angle %f rejected, scanID %d out of range [0, %d]", angle, scanID, N_SCANS - 1);
+            count--;
+            continue;
             }
+            ROS_DEBUG("OS1-64: Point with angle %f assigned to scanID %d", angle, scanID);
         }
         else
         {
-            //printf("wrong scan number\n");
+            ROS_ERROR("Unsupported LIDAR configuration: LIDAR_TYPE=%s, N_SCANS=%d", LIDAR_TYPE.c_str(), N_SCANS);
+            printf("wrong scan number\n");
             ROS_BREAK();
         }
         ////printf("angle %f scanID %d \n", angle, scanID);
@@ -485,7 +495,7 @@ int main(int argc, char **argv)
 
     if(N_SCANS != 16 && N_SCANS != 32 && N_SCANS != 64)
     {
-        //printf("only support velodyne with 16, 32 or 64 scan line!");
+        printf("only support velodyne with 16, 32 or 64 scan line!");
         return 0;
     }
 
