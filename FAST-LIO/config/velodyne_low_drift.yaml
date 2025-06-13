@@ -1,0 +1,40 @@
+# Z-Drift Reduction Configuration
+# Copy this to FAST-LIO config directory for high-precision scenarios
+
+common:
+    lid_topic:  "/velodyne_points"
+    imu_topic:  "/imu/data"
+    time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
+    
+preprocess:
+    lidar_type: 2                # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR, 
+    scan_line: 32
+    blind: 4
+
+mapping:
+    acc_cov: 0.005              # Further reduced for stricter z-constraint
+    gyr_cov: 0.005              # Further reduced for better orientation
+    b_acc_cov: 0.0000005        # Much tighter accelerometer bias constraint
+    b_gyr_cov: 0.0000005        # Much tighter gyroscope bias constraint
+    fov_degree:    180
+    det_range:     100.0
+    extrinsic_T: [ 0, 0, 0.28]  # Ensure accurate calibration
+    extrinsic_R: [ 1, 0, 0, 
+                   0, 1, 0, 
+                   0, 0, 1]
+    # Enhanced drift reduction parameters
+    plane_threshold: 0.02       # Stricter planar feature threshold
+    edge_threshold: 0.05        # Stricter edge feature threshold
+    max_iterations: 4           # Increase for better convergence
+    gravity_align: true         # Enable gravity alignment
+    z_tolerance: 0.001          # Strict z-tolerance
+    
+# Z-drift specific filter parameters
+filter_size_corner: 0.3        # Reduced for better feature preservation
+filter_size_surf: 0.2          # Reduced for finer surface details
+filter_size_map: 0.15          # Reduced for higher map resolution
+
+publish:     
+    scan_publish_en:  true       # 'false' will close all the point cloud output
+    dense_publish_en: true       # false will low down the points number in a global-frame point clouds scan.
+    scan_bodyframe_pub_en: true  # output the point cloud scans in IMU-body-frame

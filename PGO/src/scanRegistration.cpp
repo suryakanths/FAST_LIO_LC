@@ -115,6 +115,7 @@ void removeClosedPointCloud(const pcl::PointCloud<PointT> &cloud_in,
 
 void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 {
+    ROS_INFO("laserCloudHandler called");
     if (!systemInited)
     { 
         systemInitCount++;
@@ -184,11 +185,11 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             scanID = int((angle + 92.0/3.0) * 3.0 / 4.0);
             if (scanID > (N_SCANS - 1) || scanID < 0)
             {
-            ROS_DEBUG("HDL32: Point with angle %f rejected, scanID %d out of range [0, %d]", angle, scanID, N_SCANS - 1);
+            ROS_INFO("HDL32: Point with angle %f rejected, scanID %d out of range [0, %d]", angle, scanID, N_SCANS - 1);
             count--;
             continue;
             }
-            ROS_DEBUG("HDL32: Point with angle %f assigned to scanID %d", angle, scanID);
+            ROS_INFO("HDL32: Point with angle %f assigned to scanID %d", angle, scanID);
         }
         // HDL64 (e.g., KITTI)
         else if (LIDAR_TYPE == "HDL64" && N_SCANS == 64)
@@ -201,12 +202,12 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             // use [0 50]  > 50 remove outlies 
             if (angle > 2 || angle < -24.33 || scanID > 50 || scanID < 0)
             {
-            ROS_DEBUG("HDL64: Point with angle %f rejected, scanID %d (limits: angle [%f, %f], scanID [0, 50])", 
+            ROS_INFO("HDL64: Point with angle %f rejected, scanID %d (limits: angle [%f, %f], scanID [0, 50])", 
                  angle, scanID, -24.33, 2.0);
             count--;
             continue;
             }
-            ROS_DEBUG("HDL64: Point with angle %f assigned to scanID %d", angle, scanID);
+            ROS_INFO("HDL64: Point with angle %f assigned to scanID %d", angle, scanID);
         }
         // Ouster OS1-64 (e.g., MulRan)
         else if (LIDAR_TYPE == "OS1-64" && N_SCANS == 64)
@@ -214,15 +215,15 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             scanID = int((angle + 22.5) / 2 + 0.5); // ouster os1-64 vfov is [-22.5, 22.5] see https://ouster.com/products/os1-lidar-sensor/
             if (scanID > (N_SCANS - 1) || scanID < 0)
             {
-            ROS_DEBUG("OS1-64: Point with angle %f rejected, scanID %d out of range [0, %d]", angle, scanID, N_SCANS - 1);
+            ROS_INFO("OS1-64: Point with angle %f rejected, scanID %d out of range [0, %d]", angle, scanID, N_SCANS - 1);
             count--;
             continue;
             }
-            ROS_DEBUG("OS1-64: Point with angle %f assigned to scanID %d", angle, scanID);
+            ROS_INFO("OS1-64: Point with angle %f assigned to scanID %d", angle, scanID);
         }
         else
         {
-            ROS_ERROR("Unsupported LIDAR configuration: LIDAR_TYPE=%s, N_SCANS=%d", LIDAR_TYPE.c_str(), N_SCANS);
+            ROS_INFO("Unsupported LIDAR configuration: LIDAR_TYPE=%s, N_SCANS=%d", LIDAR_TYPE.c_str(), N_SCANS);
             printf("wrong scan number\n");
             ROS_BREAK();
         }

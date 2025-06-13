@@ -1,0 +1,26 @@
+common:
+    lid_topic:  "/livox/lidar"       # Adjust this topic based on your LiDAR configuration
+    imu_topic:  "/livox/imu"         # Adjust this topic based on your IMU configuration
+    time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
+
+preprocess:
+    lidar_type: 1                # 3 for ouster LiDAR
+    scan_line: 32                # Correct for OS0-16
+    blind: 1.0                   # Reduced blind zone for OS0-16
+
+mapping:
+    acc_cov: 0.1
+    gyr_cov: 0.1
+    b_acc_cov: 0.0001
+    b_gyr_cov: 0.0001
+    fov_degree: 360              # OS0-16 has 360° horizontal FOV
+    det_range: 120.0             # Reduced range for 16-channel
+    extrinsic_T: [ 0.0, 0.0, 0.0 ]  # Adjust based on your mounting
+    extrinsic_R: [1, 0, 0,
+                  0, 1, 0,
+                  0, 0, 1]       # Identity matrix - adjust for your setup
+
+publish:
+    scan_publish_en: true
+    dense_publish_en: true       # Fixed typo: "ture" -> "true"
+    scan_bodyframe_pub_en: true
