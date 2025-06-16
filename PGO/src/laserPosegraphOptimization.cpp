@@ -1012,17 +1012,9 @@ bool detectLoopClosureDistance(int *loopKeyCur, int *loopKeyPre)
                   << "). Skipping loop closure detection." << std::endl;
         return false;
     }
-    ROS_INFO_STREAM("Loop closure detection for keyframe " << *loopKeyCur << " with position: ("
-                                                           << lastPose.x << ", " << lastPose.y << ", " << lastPose.z << ")");
-    for (auto point : copy_cloudKeyPoses3D->points)
-    {
-        std::cout << "[WARNING] Invalid keyframe pose coordinates detected: ("
-                  << point.x << ", " << point.y << ", " << point.z
-                  << "). Skipping this pose." << std::endl;
-    }
+
     std::vector<int> pointSearchIndLoop;
     std::vector<float> pointSearchSqDisLoop;
-    ROS_INFO_STREAM("Searching for loop closure candidates within radius: " << historyKeyframeSearchRadius);
     kdtreeHistoryKeyPoses->setInputCloud(copy_cloudKeyPoses3D);
     kdtreeHistoryKeyPoses->radiusSearch(copy_cloudKeyPoses3D->back(), historyKeyframeSearchRadius, pointSearchIndLoop, pointSearchSqDisLoop, 0);
     ROS_INFO_STREAM("Found " << pointSearchIndLoop.size() << " candidates for loop closure.");
