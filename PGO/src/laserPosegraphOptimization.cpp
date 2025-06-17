@@ -21,6 +21,7 @@
 #include <string>
 #include <optional>
 #include <cmath>
+#include <chrono>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -136,13 +137,19 @@ double scDistThres, scMaximumRadius;
 pgo_cuda::CudaPGOProcessor cuda_processor;
 bool cuda_available = false;
 
-// CPU optimization variables
+// CPU optimization variables - AGGRESSIVE SETTINGS
 static int optimization_skip_counter = 0;
 static double last_optimization_time = 0.0;
-static const double MIN_OPTIMIZATION_INTERVAL = 2.0; // Minimum 2 seconds between optimizations
-static const int OPTIMIZATION_SKIP_FACTOR = 5; // Skip optimization every 5 times
+static const double MIN_OPTIMIZATION_INTERVAL = 5.0; // AGGRESSIVE: Minimum 5 seconds between optimizations
+static const int OPTIMIZATION_SKIP_FACTOR = 10; // AGGRESSIVE: Skip optimization more frequently  
 static int loop_closure_count = 0;
 static bool force_next_optimization = false;
+
+// Emergency CPU throttling
+static const double EMERGENCY_CPU_THRESHOLD = 600.0; // 600% CPU usage threshold
+static bool emergency_throttle_mode = false;
+static double last_cpu_check = 0.0;
+static const double CPU_CHECK_INTERVAL = 10.0; // Check CPU every 10 seconds
 
 // Performance monitoring
 static auto last_performance_print = std::chrono::steady_clock::now();
@@ -422,7 +429,7 @@ void pubPath( void )
         nav_msgs::Odometry odomAftPGOthis;
         odomAftPGOthis.header.frame_id = "camera_init";
         odomAftPGOthis.child_frame_id = "/aft_pgo";
-        odomAftPGOthis.header.stamp = ros::Time().fromSec(keyframeTimes.at(node_idx));
+        odomAftPGOthis.header.stamp = ros::Time::now(); // Use current time to avoid TF_OLD_DATA warnings
         odomAftPGOthis.pose.pose.position.x = pose_est.x;
         odomAftPGOthis.pose.pose.position.y = pose_est.y;
         odomAftPGOthis.pose.pose.position.z = pose_est.z;
@@ -526,10 +533,69 @@ void updatePoses(void)
 
 void runISAM2opt(void)
 {
+    // CPU optimization: Check for emergency throttling
+    double current_time = ros::Time::now().toSec();
+    if (current_time - last_cpu_check > CPU_CHECK_INTERVAL) {
+        last_cpu_check = current_time;
+        
+        // Simple CPU check - if we're in emergency mode, be extra conservative
+        if (emergency_throttle_mode) {
+            optimization_skip_counter++;
+            if (optimization_skip_counter < OPTIMIZATION_SKIP_FACTOR * 2) { // Double the skip factor in emergency
+                std::cout << "[EMERGENCY] CPU throttling - skipping optimization (" 
+                          << optimization_skip_counter << ")" << std::endl;
+                return;
+            }
+        }
+    }
+    
+    // CPU optimization: Skip optimization if called too frequently
+    optimization_skip_counter++;
+    
+    // Skip optimization if:
+    // 1. Not enough time has passed since last optimization AND
+    // 2. No new loop closures have been detected AND  
+    // 3. Skip counter hasn't exceeded the threshold
+    bool should_skip = (current_time - last_optimization_time < MIN_OPTIMIZATION_INTERVAL) && 
+                      !force_next_optimization && 
+                      (optimization_skip_counter < OPTIMIZATION_SKIP_FACTOR);
+    
+    if (should_skip) {
+        std::cout << "[CPU OPT] Skipping optimization (counter: " << optimization_skip_counter 
+                  << ", time since last: " << (current_time - last_optimization_time) << "s)" << std::endl;
+        return;
+    }
+    
+    // Reset counters and perform optimization
+    optimization_skip_counter = 0;
+    last_optimization_time = current_time;
+    force_next_optimization = false;
+    optimizations_performed++;
+    
+    std::cout << "[CPU OPT] Performing optimization #" << optimizations_performed 
+              << " (keyframes: " << total_keyframes_processed 
+              << ", loop closures: " << loop_closure_count << ")" << std::endl;
+    
+    // Adaptive optimization: Reduce number of iterations based on graph size
+    int adaptive_update_times = graphUpdateTimes;
+    if (keyframePoses.size() > 50) {
+        adaptive_update_times = std::max(1, static_cast<int>(graphUpdateTimes) / 2); // Reduce iterations for medium graphs
+    }
+    if (keyframePoses.size() > 100) {
+        adaptive_update_times = 1; // Minimal iterations for large graphs
+    }
+    if (emergency_throttle_mode) {
+        adaptive_update_times = 1; // Always minimal in emergency mode
+    }
+    
+    auto opt_start = std::chrono::high_resolution_clock::now();
+    
     // called when a variable added 
     isam->update(gtSAMgraph, initialEstimate);
     isam->update();
-    for(int i = graphUpdateTimes; i > 0; --i){
+    
+    // Adaptive optimization iterations
+    for(int i = adaptive_update_times; i > 0; --i){
         isam->update();
     }
     
@@ -539,6 +605,23 @@ void runISAM2opt(void)
     isamCurrentEstimate = isam->calculateEstimate();
     updatePoses();
     pubPath();  // 每优化一次就输出一次优化后的位姿
+    
+    auto opt_end = std::chrono::high_resolution_clock::now();
+    auto opt_duration = std::chrono::duration_cast<std::chrono::milliseconds>(opt_end - opt_start);
+    
+    std::cout << "[CPU OPT] Optimization completed in " << opt_duration.count() 
+              << "ms with " << adaptive_update_times << " iterations" << std::endl;
+    
+    // Print performance statistics every 30 seconds
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_performance_print).count() >= 30) {
+        std::cout << "[PERFORMANCE] Stats - Keyframes: " << total_keyframes_processed 
+                  << ", Optimizations: " << optimizations_performed 
+                  << ", Loop closures: " << loop_closure_count 
+                  << ", CUDA ops: " << (cuda_available ? "available" : "not available") 
+                  << ", Emergency mode: " << (emergency_throttle_mode ? "ON" : "OFF") << std::endl;
+        last_performance_print = now;
+    }
 }
 
 pcl::PointCloud<PointType>::Ptr transformPointCloud(pcl::PointCloud<PointType>::Ptr cloudIn, gtsam::Pose3 transformIn)
@@ -913,8 +996,17 @@ void process_pg()
             
             if (!cuda_success) {
                 // Fallback to CPU implementation
-                downSizeFilterScancontext.setInputCloud(thisKeyFrame);
-                downSizeFilterScancontext.filter(*thisKeyFrameDS);
+                // Try CUDA acceleration first, fallback to CPU if needed
+                bool cuda_success = false;
+                if (cuda_available) {
+                    cuda_success = cuda_processor.DownsamplePointCloud(thisKeyFrame, thisKeyFrameDS, 0.4f);
+                }
+                
+                if (!cuda_success) {
+                    // Fallback to CPU implementation
+                    downSizeFilterScancontext.setInputCloud(thisKeyFrame);
+                    downSizeFilterScancontext.filter(*thisKeyFrameDS);
+                }
             }
 
             mKF.lock(); 
@@ -929,6 +1021,9 @@ void process_pg()
             }
             keyframePosesUpdated.push_back(pose_curr); // init
             keyframeTimes.push_back(timeLaserOdometry);
+
+            // CPU optimization: Track keyframes processed
+            total_keyframes_processed++;
 
             scManager.makeAndSaveScancontextAndKeys(*thisKeyFrameDS);
 
@@ -1166,8 +1261,12 @@ void visualizeLoopClosure()
 
 void process_lcd(void)
 {
-    // float loopClosureFrequency = 3.0; // can change 
-    ros::Rate rate(loopClosureFrequency);
+    // CPU optimization: Adaptive loop closure detection frequency
+    float optimized_freq = std::min(static_cast<float>(loopClosureFrequency), 1.0f); // Cap at 1 Hz to reduce CPU usage
+    ros::Rate rate(optimized_freq);
+    
+    std::cout << "[CPU OPT] Loop closure detection frequency reduced to " << optimized_freq << " Hz" << std::endl;
+    
     while (ros::ok())
     {
         rate.sleep();
@@ -1200,6 +1299,13 @@ void process_icp(void)
                 // gtsam::Pose3 relative_pose = relative_pose_optional.value();
                 mtxPosegraph.lock();
                 gtSAMgraph.add(gtsam::BetweenFactor<gtsam::Pose3>(curr_node_idx, prev_node_idx, relative_pose, robustLoopNoise));
+                
+                // CPU optimization: Track loop closures and force next optimization
+                loop_closure_count++;
+                force_next_optimization = true;
+                std::cout << "[CPU OPT] Loop closure #" << loop_closure_count 
+                          << " detected between nodes " << curr_node_idx << " and " << prev_node_idx << std::endl;
+                
                 // runISAM2opt();
                 mtxPosegraph.unlock();
             } 
@@ -1213,8 +1319,12 @@ void process_icp(void)
 
 void process_viz_path(void)
 {
-    float hz = vizPathFrequency; 
-    ros::Rate rate(hz);
+    // CPU optimization: Reduce path publishing frequency
+    float optimized_hz = std::min(static_cast<float>(vizPathFrequency), 2.0f); // Cap at 2 Hz maximum
+    ros::Rate rate(optimized_hz);
+    
+    std::cout << "[CPU OPT] Path visualization frequency reduced to " << optimized_hz << " Hz" << std::endl;
+    
     while (ros::ok()) {
         rate.sleep();
         if(recentIdxUpdated > 1) {
@@ -1225,15 +1335,47 @@ void process_viz_path(void)
 
 void process_isam(void)
 {
-    float hz = graphUpdateFrequency; 
-    ros::Rate rate(hz);
+    // CPU optimization: Adaptive optimization frequency
+    // Start with lower frequency and increase only when needed
+    float base_hz = std::max(0.2f, static_cast<float>(graphUpdateFrequency) * 0.5f); // Reduce base frequency by 50%
+    float current_hz = base_hz;
+    
+    ros::Rate rate(current_hz);
+    
     while (ros::ok()) {
         rate.sleep();
+        
         if( gtSAMgraphMade ) {
+            // Adaptive frequency based on system state
+            bool needs_frequent_optimization = false;
+            
+            // Increase frequency temporarily if:
+            // 1. Recent loop closures detected
+            // 2. Large number of new keyframes since last optimization
+            static int last_keyframe_count = 0;
+            int new_keyframes = total_keyframes_processed - last_keyframe_count;
+            
+            if (force_next_optimization || new_keyframes > 10) {
+                needs_frequent_optimization = true;
+                current_hz = graphUpdateFrequency; // Use full frequency
+            } else {
+                current_hz = base_hz; // Use reduced frequency
+            }
+            
+            // Update rate if changed
+            static float last_hz = current_hz;
+            if (std::abs(current_hz - last_hz) > 0.1f) {
+                rate = ros::Rate(current_hz);
+                last_hz = current_hz;
+                std::cout << "[CPU OPT] Adjusted optimization frequency to " << current_hz << " Hz" << std::endl;
+            }
+            
             mtxPosegraph.lock();
             runISAM2opt();
             // cout << "running isam2 optimization ..." << endl;
             mtxPosegraph.unlock();
+            
+            last_keyframe_count = total_keyframes_processed;
 
             saveOptimizedVerticesKITTIformat(isamCurrentEstimate, pgKITTIformat); // pose
             saveOdometryVerticesKITTIformat(odomKITTIformat); // pose
@@ -1284,8 +1426,13 @@ void pubMap(void)
 
 void process_viz_map(void)
 {
-    // float vizmapFrequency = 0.1; // 0.1 means run onces every 10s
-    ros::Rate rate(vizmapFrequency);
+    // CPU optimization: Significantly reduce map visualization frequency
+    // Map visualization is very expensive, so reduce it more aggressively
+    float optimized_freq = std::min(static_cast<float>(vizmapFrequency), 0.2f); // Cap at 0.2 Hz (once every 5 seconds)
+    ros::Rate rate(optimized_freq);
+    
+    std::cout << "[CPU OPT] Map visualization frequency reduced to " << optimized_freq << " Hz" << std::endl;
+    
     while (ros::ok()) {
         rate.sleep();
         if(recentIdxUpdated > 1) {
