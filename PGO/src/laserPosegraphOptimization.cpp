@@ -71,6 +71,9 @@
 
 #include "scancontext/Scancontext.h"
 
+// CUDA acceleration for PGO
+#include "pgo_cuda_utils.h"
+
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 
@@ -128,6 +131,23 @@ noiseModel::Base::shared_ptr robustGPSNoise;
 pcl::VoxelGrid<PointType> downSizeFilterScancontext;
 SCManager scManager;
 double scDistThres, scMaximumRadius;
+
+// CUDA acceleration
+pgo_cuda::CudaPGOProcessor cuda_processor;
+bool cuda_available = false;
+
+// CPU optimization variables
+static int optimization_skip_counter = 0;
+static double last_optimization_time = 0.0;
+static const double MIN_OPTIMIZATION_INTERVAL = 2.0; // Minimum 2 seconds between optimizations
+static const int OPTIMIZATION_SKIP_FACTOR = 5; // Skip optimization every 5 times
+static int loop_closure_count = 0;
+static bool force_next_optimization = false;
+
+// Performance monitoring
+static auto last_performance_print = std::chrono::steady_clock::now();
+static int total_keyframes_processed = 0;
+static int optimizations_performed = 0;
 
 pcl::VoxelGrid<PointType> downSizeFilterICP;
 std::mutex mtxICP;
@@ -593,10 +613,20 @@ void loopFindNearKeyframesCloud( pcl::PointCloud<PointType>::Ptr& nearKeyframes,
     if (nearKeyframes->empty())
         return;
 
-    // downsample near keyframes
+    // downsample near keyframes with CUDA acceleration
     pcl::PointCloud<PointType>::Ptr cloud_temp(new pcl::PointCloud<PointType>());
-    downSizeFilterICP.setInputCloud(nearKeyframes);
-    downSizeFilterICP.filter(*cloud_temp);
+    
+    bool cuda_success = false;
+    if (cuda_available) {
+        cuda_success = cuda_processor.DownsamplePointCloud(nearKeyframes, cloud_temp, 0.4f);
+    }
+    
+    if (!cuda_success) {
+        // Fallback to CPU implementation
+        downSizeFilterICP.setInputCloud(nearKeyframes);
+        downSizeFilterICP.filter(*cloud_temp);
+    }
+    
     *nearKeyframes = *cloud_temp;
 } // loopFindNearKeyframesCloud
 
@@ -622,10 +652,20 @@ void loopFindNearKeyframes(pcl::PointCloud<PointType>::Ptr& nearKeyframes, const
     if (nearKeyframes->empty())
         return;
 
-    // 降采样
+    // 降采样 with CUDA acceleration
     pcl::PointCloud<PointType>::Ptr cloud_temp(new pcl::PointCloud<PointType>());
-    downSizeFilterICP.setInputCloud(nearKeyframes);
-    downSizeFilterICP.filter(*cloud_temp);
+    
+    bool cuda_success = false;
+    if (cuda_available) {
+        cuda_success = cuda_processor.DownsamplePointCloud(nearKeyframes, cloud_temp, 0.4f);
+    }
+    
+    if (!cuda_success) {
+        // Fallback to CPU implementation
+        downSizeFilterICP.setInputCloud(nearKeyframes);
+        downSizeFilterICP.filter(*cloud_temp);
+    }
+    
     *nearKeyframes = *cloud_temp;
 }
 
@@ -864,8 +904,18 @@ void process_pg()
             // Save data and Add consecutive node 
             //
             pcl::PointCloud<PointType>::Ptr thisKeyFrameDS(new pcl::PointCloud<PointType>());
-            downSizeFilterScancontext.setInputCloud(thisKeyFrame);
-            downSizeFilterScancontext.filter(*thisKeyFrameDS);
+            
+            // Try CUDA acceleration first, fallback to CPU if needed
+            bool cuda_success = false;
+            if (cuda_available) {
+                cuda_success = cuda_processor.DownsamplePointCloud(thisKeyFrame, thisKeyFrameDS, 0.4f);
+            }
+            
+            if (!cuda_success) {
+                // Fallback to CPU implementation
+                downSizeFilterScancontext.setInputCloud(thisKeyFrame);
+                downSizeFilterScancontext.filter(*thisKeyFrameDS);
+            }
 
             mKF.lock(); 
             keyframeLaserClouds.push_back(thisKeyFrameDS);
@@ -1208,8 +1258,23 @@ void pubMap(void)
     }
     mKF.unlock(); 
 
-    downSizeFilterMapPGO.setInputCloud(laserCloudMapPGO);
-    downSizeFilterMapPGO.filter(*laserCloudMapPGO);
+    // Downsample map with CUDA acceleration
+    pcl::PointCloud<PointType>::Ptr laserCloudMapPGODS(new pcl::PointCloud<PointType>());
+    
+    bool cuda_success = false;
+    if (cuda_available) {
+        double mapVizFilterSize = 0.4; // Get from parameter if needed
+        cuda_success = cuda_processor.DownsamplePointCloud(laserCloudMapPGO, laserCloudMapPGODS, mapVizFilterSize);
+        if (cuda_success) {
+            *laserCloudMapPGO = *laserCloudMapPGODS;
+        }
+    }
+    
+    if (!cuda_success) {
+        // Fallback to CPU implementation
+        downSizeFilterMapPGO.setInputCloud(laserCloudMapPGO);
+        downSizeFilterMapPGO.filter(*laserCloudMapPGO);
+    }
 
     sensor_msgs::PointCloud2 laserCloudMapPGOMsg;
     pcl::toROSMsg(*laserCloudMapPGO, laserCloudMapPGOMsg);
@@ -1305,6 +1370,14 @@ int main(int argc, char **argv)
     double mapVizFilterSize;
 	nh.param<double>("mapviz_filter_size", mapVizFilterSize, 0.4); // pose assignment every k frames 
     downSizeFilterMapPGO.setLeafSize(mapVizFilterSize, mapVizFilterSize, mapVizFilterSize);
+
+    // Initialize CUDA processor for acceleration
+    cuda_available = pgo_cuda::CudaPGOProcessor::IsCudaAvailable();
+    if (cuda_available) {
+        ROS_INFO("CUDA acceleration available for PGO");
+    } else {
+        ROS_INFO("CUDA not available, using CPU fallbacks for PGO");
+    }
 
 	ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_registered_local", 100, laserCloudFullResHandler);
 	ros::Subscriber subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/aft_mapped_to_init", 100, laserOdometryHandler);
