@@ -1,58 +1,184 @@
 <launch>
 
+    <!-- ==================== LIDAR CONFIGURATION ==================== -->
+    <!-- Number of scan lines in your LiDAR sensor
+         Common values: 16 (VLP-16), 32 (HDL-32E), 64 (HDL-64E)
+         Adjust based on your specific LiDAR model -->
     <param name="scan_line" type="int" value="16" />
 
-    <!-- if 1, do mapping 10 Hz, if 2, do mapping 5 Hz. Suggest to use 1, it will adjust frequence automaticlly -->
+    <!-- ==================== MAPPING FREQUENCY ==================== -->
+    <!-- Controls mapping frequency to balance performance and accuracy
+         Value 1: 10 Hz mapping (recommended - auto adjusts frequency)
+         Value 2: 5 Hz mapping (use for slower systems)
+         Higher values = lower frequency, better for resource-constrained systems -->
     <param name="mapping_skip_frame" type="int" value="1" />
 
-    <!-- remove too closed points -->
+    <!-- ==================== POINT CLOUD FILTERING ==================== -->
+    <!-- Minimum distance threshold to remove points too close to sensor
+         Range: 0.05-0.5 meters
+         Smaller values keep more close points but may include noise
+         Larger values remove more noise but may lose important details -->
     <param name="minimum_range" type="double" value="0.1"/>
 
+    <!-- Voxel grid resolution for line features in mapping
+         Range: 0.1-0.5 meters
+         Smaller values = more detailed map but higher computation
+         Larger values = faster processing but less detail -->
     <param name="mapping_line_resolution" type="double" value="0.2"/>
+    
+    <!-- Voxel grid resolution for planar features in mapping
+         Range: 0.2-1.0 meters
+         Should be 2x mapping_line_resolution for optimal performance
+         Affects map detail vs computational efficiency -->
     <param name="mapping_plane_resolution" type="double" value="0.4"/>
 
+    <!-- Filter size for map visualization in RViz
+         Range: 0.05-0.2 meters
+         Smaller values = more points displayed (slower visualization)
+         Larger values = fewer points displayed (faster visualization) -->
     <param name="mapviz_filter_size" type="double" value="0.1"/>
 
-    <!-- SC-A-LOAM -->
+    <!-- ==================== KEYFRAME SELECTION ==================== -->
+    <!-- Minimum distance between keyframes for loop closure detection
+         Range: 0.5-3.0 meters
+         Smaller values = more keyframes (better accuracy, more computation)
+         Larger values = fewer keyframes (faster processing, may miss loops) -->
     <param name="keyframe_meter_gap" type="double" value="1"/> 
+    
+    <!-- Minimum rotation angle between keyframes
+         Range: 5.0-30.0 degrees
+         Smaller values = more keyframes for rotational motion
+         Larger values = fewer keyframes, may miss rotational loops -->
     <param name="keyframe_deg_gap" type="double" value="10.0"/> 
 
-    <!-- Scan Context -->
-    <param name="sc_dist_thres" type="double" value="0.4"/> <!-- SC-A-LOAM, if want no outliers, use 0.1-0.15 -->
-    <param name="sc_max_radius" type="double" value="20"/> <!-- 20 or 40 for indoor -->
-    <!-- <param name="sc_max_radius" type="double" value="80.0"/> for outdoor -->
+    <!-- ==================== SCAN CONTEXT PARAMETERS ==================== -->
+    <!-- Distance threshold for Scan Context matching
+         Range: 0.1-0.6
+         Indoor/High Precision: 0.1-0.15 (fewer false positives)
+         Outdoor/Robust: 0.3-0.4 (more tolerant to noise)
+         Lower values = stricter matching, fewer false loops -->
+    <param name="sc_dist_thres" type="double" value="0.4"/>
+    
+    <!-- Maximum radius for Scan Context descriptor
+         Indoor environments: 20-40 meters
+         Outdoor environments: 60-80 meters
+         Should match typical sensor range and environment size -->
+    <param name="sc_max_radius" type="double" value="20"/>
+    <!-- Uncomment for outdoor environments: -->
+    <!-- <param name="sc_max_radius" type="double" value="80.0"/> -->
 
-    <!-- loop closure -->
+    <!-- ==================== LOOP CLOSURE DETECTION ==================== -->
+    <!-- Search radius for finding nearby historical keyframes
+         Range: 1.0-5.0 meters
+         Larger values find more potential loop candidates but increase computation
+         Should be larger than typical odometry drift -->
     <param name="historyKeyframeSearchRadius" value="1.5"/>
+    
+    <!-- Minimum time difference for loop closure candidates
+         Range: 10.0-60.0 seconds
+         Prevents short-term loops, ensures meaningful loop closures
+         Larger values = more conservative loop detection -->
     <param name="historyKeyframeSearchTimeDiff" value=" 30.0"/>
+    
+    <!-- Maximum number of historical keyframes to consider for loop closure
+         Range: 10-50 keyframes
+         More keyframes = better loop detection but slower processing
+         Balance between accuracy and computational efficiency -->
     <param name="historyKeyframeSearchNum" value="20"/>
-    <param name="speedFactor" value="1"/>           <!-- 倍速因子 -->
-    <param name="loopClosureFrequency" value="4.0"/> <!-- 应该相对于输入数据的频率 成比例 -->
+    
+    <!-- Playback speed multiplier for processing recorded data
+         Value 1.0 = real-time processing
+         Values > 1.0 = faster than real-time (may affect quality)
+         Values < 1.0 = slower than real-time (better quality) -->
+    <param name="speedFactor" value="1"/>
+    
+    <!-- Frequency of loop closure detection attempts (Hz)
+         Range: 1.0-10.0 Hz
+         Should be proportional to input data frequency
+         Higher values = more frequent checks but more computation -->
+    <param name="loopClosureFrequency" value="4.0"/>
+    
+    <!-- Frequency of pose graph optimization updates (Hz)
+         Range: 0.5-5.0 Hz
+         Lower than loop closure frequency for computational efficiency
+         Higher values = more responsive but more CPU intensive -->
     <param name="graphUpdateFrequency" value="2.0"/>
-    <param name="graphUpdateTimes" value="5"/> <!-- 每次更新，ism->update的测试 -->
-    <param name="loopNoiseScore" value="0.1"/> <!-- 0.02 -->
+    
+    <!-- Number of optimization iterations per graph update
+         Range: 3-10 iterations
+         More iterations = better convergence but slower processing
+         Balance between optimization quality and speed -->
+    <param name="graphUpdateTimes" value="5"/>
+    
+    <!-- Noise score threshold for loop closure validation
+         Range: 0.05-0.2
+         Lower values = stricter validation, fewer false loops
+         Higher values = more permissive, may include noisy loops
+         Typical good value: 0.1 (default), 0.02 (very strict) -->
+    <param name="loopNoiseScore" value="0.1"/>
+    
+    <!-- Frequency of map visualization updates (Hz)
+         Range: 1-20 Hz
+         Lower values save computation, higher values provide smoother visualization
+         Adjust based on visualization needs vs performance -->
     <param name="vizmapFrequency" value="10"/>
-    <param name="loopFitnessScoreThreshold" value="0.3"/> <!-- ICP score -->
     
+    <!-- ICP fitness score threshold for accepting loop closures
+         Range: 0.1-0.5
+         Lower values = stricter ICP matching, fewer false loops
+         Higher values = more permissive matching, may accept poor alignments
+         Typical range: 0.2-0.4 depending on environment complexity -->
+    <param name="loopFitnessScoreThreshold" value="0.3"/>
     
+    <!-- ==================== SENSOR CONFIGURATION ==================== -->
+    <!-- LiDAR sensor type specification
+         Common options: "VLP16", "HDL32E", "HDL64E", "Ouster64", "Livox"
+         Must match your actual sensor for proper point cloud processing -->
     <param name="lidar_type" type="string" value="VLP16"/> 
+    
+    <!-- Topic remapping for raw LiDAR points
+         Change the "to" value to match your actual LiDAR topic name -->
     <remap from="/velodyne_points" to="/velodyne_points"/>
     
-    <!-- input from FASTLIO2 -->
+    <!-- ==================== FAST-LIO INTEGRATION ==================== -->
+    <!-- Input topic remappings from FAST-LIO2 system
+         Adjust these "to" values to match your FAST-LIO2 output topics -->
+    
+    <!-- Odometry data from FAST-LIO2 -->
     <remap from="/aft_mapped_to_init" to="/Odometry"/>
+    
+    <!-- Point cloud in body frame from FAST-LIO2 -->
     <remap from="/velodyne_cloud_registered_local" to="/cloud_registered_body"/>
-    <remap from="/cloud_for_scancontext" to="/cloud_registered_lidar"/>   <!-- because ScanContext requires lidar-ego-centric coordinate for the better performance -->
+    
+    <!-- Point cloud in LiDAR frame for Scan Context processing
+         IMPORTANT: Must be in LiDAR-centric coordinates for optimal performance -->
+    <remap from="/cloud_for_scancontext" to="/cloud_registered_lidar"/>
 
-    <!-- utils -->
-    <param name="save_directory" type="string" value="$(env HOME)/Desktop/catkin_fastlio_slam/data/"/>  CHANGE THIS and end with /
+    <!-- ==================== DATA STORAGE ==================== -->
+    <!-- Directory for saving generated maps and optimization results
+         MUST be changed to your desired path and MUST end with "/"
+         Example: "$(env HOME)/slam_data/" or "/path/to/your/maps/" -->
+    <param name="save_directory" type="string" value="$(env HOME)/Desktop/catkin_fastlio_slam/data/"/>  <!-- CHANGE THIS and end with / -->
 
-    <!-- nodes -->
-    <node pkg="aloam_velodyne" type="alaserPGO" name="alaserPGO" output="screen" /> <!-- Scan Context-based PGO -->
+    <!-- ==================== NODE EXECUTION ==================== -->
+    <!-- Main PGO node running Scan Context-based pose graph optimization
+         This node handles loop closure detection and graph optimization -->
+    <node pkg="aloam_velodyne" type="alaserPGO" name="alaserPGO" output="screen" />
 
-    <!-- visulaization -->
+    <!-- ==================== VISUALIZATION ==================== -->
+    <!-- Enable/disable RViz visualization
+         Set to "false" to run headless without visualization -->
     <arg name="rviz" default="true" />
     <group if="$(arg rviz)">
+        <!-- RViz visualization node with optimized priority
+             Displays real-time mapping, loop closures, and pose graph -->
         <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz_sc_pgo" args="-d $(find aloam_velodyne)/rviz_cfg/aloam_velodyne.rviz" />
     </group>
-    <!-- cloud to 2D map conversion -->
+    
+    <!-- ==================== OPTIONAL: 2D MAP CONVERSION ==================== -->
+    <!-- Uncomment the following section to enable 2D occupancy grid generation -->
+    <!-- This converts 3D point clouds to 2D occupancy grids for navigation -->
+    <!--
+    <include file="$(find aloam_velodyne)/launch/cloud_to_2d_map.launch" />
+    -->
 </launch>

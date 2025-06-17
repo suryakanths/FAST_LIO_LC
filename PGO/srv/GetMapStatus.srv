@@ -1,0 +1,13 @@
+# Service definition for getting current PGO map status
+# Request (empty - just query current status)
+---
+# Response
+bool map_available           # True if optimized map is available
+int32 num_keyframes         # Number of keyframes in the pose graph
+int32 num_points            # Approximate number of points in current map
+int32 num_loop_closures     # Number of detected loop closures
+float64 map_coverage_area   # Estimated coverage area in square meters
+string current_frame        # Current coordinate frame
+geometry_msgs/Pose latest_pose  # Latest robot pose
+float64 optimization_time   # Time of last optimization in seconds
+string status_message       # Human readable status message

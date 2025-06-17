@@ -1,0 +1,26 @@
+# Service definition for saving optimized PGO map with outlier removal
+# Request
+string output_path                     # Full path including filename (e.g., "/home/user/map.pcd")
+string file_format                     # "pcd" or "ply" (default: pcd)
+bool enable_outlier_removal            # Enable statistical outlier removal
+float32 outlier_std_ratio              # Standard deviation ratio for outlier removal (default: 1.0)
+int32 outlier_neighbors                # Number of neighbors for outlier analysis (default: 50)
+bool enable_voxel_filtering            # Enable voxel grid downsampling
+float32 voxel_size                     # Voxel grid leaf size in meters (default: 0.1)
+bool enable_radius_filtering           # Enable radius outlier removal  
+float32 radius_search                  # Search radius for radius filtering (default: 0.5)
+int32 min_neighbors_in_radius          # Minimum neighbors within radius (default: 5)
+bool compress_binary                   # Save as binary format for smaller file size
+bool include_intensity                 # Include intensity values in saved map
+geometry_msgs/Point roi_min            # Region of interest minimum bounds (optional)
+geometry_msgs/Point roi_max            # Region of interest maximum bounds (optional)
+bool use_roi                          # Whether to use ROI filtering
+---
+# Response
+bool success                          # True if map was saved successfully
+string message                       # Status message or error description
+int32 original_points                 # Number of points before filtering
+int32 filtered_points                 # Number of points after filtering
+float32 compression_ratio             # Ratio of filtered/original points
+string saved_file_path               # Full path of the saved file
+float64 processing_time              # Time taken to process and save map

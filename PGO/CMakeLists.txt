@@ -64,6 +64,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf
   tf2_ros
   tf2_geometry_msgs
+  message_generation
 )
 
 #find_package(Eigen3 REQUIRED)
@@ -83,8 +84,21 @@ include_directories(
   ${GTSAM_INCLUDE_DIR}
 )
 
+# Add service files
+add_service_files(
+  FILES
+  SaveOptimizedMap.srv
+)
+
+# Generate added messages and services with any dependencies listed here
+generate_messages(
+  DEPENDENCIES
+  geometry_msgs
+  std_msgs
+)
+
 catkin_package(
-  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs
+  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs message_runtime
   DEPENDS EIGEN3 PCL 
   INCLUDE_DIRS include
 )
@@ -168,6 +182,11 @@ target_link_libraries(kittiHelper ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_
 
 add_executable(cloud_to_2d_map src/cloud_to_2d_map.cpp)
 target_link_libraries(cloud_to_2d_map ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+# Enhanced Map Service with Outlier Removal
+add_executable(enhanced_map_service src/enhanced_map_service.cpp)
+add_dependencies(enhanced_map_service ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(enhanced_map_service ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 
 

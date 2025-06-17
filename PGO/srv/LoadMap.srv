@@ -1,0 +1,12 @@
+# Service definition for loading and publishing a saved map
+# Request
+string map_path             # Full path to the saved map file (.pcd)
+bool publish_map           # Whether to publish the map on /loaded_map topic
+bool set_as_reference      # Whether to set this as reference map for localization
+string target_frame        # Target coordinate frame (default: "map")
+---
+# Response
+bool success               # True if map was loaded successfully
+string message             # Status message or error description
+int32 num_points          # Number of points in the loaded map
+string loaded_frame       # Frame of the loaded map

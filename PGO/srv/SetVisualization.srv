@@ -1,0 +1,12 @@
+# Service definition for controlling map visualization
+# Request
+bool enable_map_viz        # Enable/disable map visualization
+bool enable_path_viz       # Enable/disable trajectory path visualization  
+bool enable_keyframes_viz  # Enable/disable keyframes visualization
+bool enable_loop_viz       # Enable/disable loop closure visualization
+float64 map_publish_rate   # Publishing rate for map visualization (Hz)
+float64 downsample_size    # Voxel size for map downsampling (0 = no downsampling)
+---
+# Response
+bool success               # True if settings were applied
+string message             # Status message

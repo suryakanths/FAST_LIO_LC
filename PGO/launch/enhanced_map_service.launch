@@ -1,0 +1,42 @@
+<!--
+  Enhanced PGO Map Service Launch File
+  
+  This launch file starts the enhanced map service with outlier removal capabilities.
+  
+  Usage:
+  roslaunch aloam_velodyne enhanced_map_service.launch
+  
+  Then call the service:
+  rosservice call /enhanced_map_service/save_optimized_map "{ 
+    output_path: '/path/to/map.pcd',
+    enable_outlier_removal: true,
+    enable_voxel_filtering: true,
+    voxel_size: 0.1
+  }"
+-->
+
+<launch>
+    <!-- Enhanced Map Service Node -->
+    <node name="enhanced_map_service" pkg="aloam_velodyne" type="enhanced_map_service" output="screen">
+        
+        <!-- Default save directory for maps -->
+        <param name="default_save_directory" value="$(env HOME)/Desktop/pgo_maps/" />
+        
+        <!-- Default filter parameters -->
+        <param name="default_voxel_size" value="0.1" />
+        <param name="default_outlier_std_ratio" value="1.0" />
+        <param name="default_outlier_neighbors" value="50" />
+        <param name="default_radius_search" value="0.5" />
+        <param name="default_min_neighbors" value="5" />
+        
+        <!-- Remap topics if needed -->
+        <remap from="/aft_pgo_map" to="/aft_pgo_map" />
+        
+    </node>
+    
+    <!-- Optional: Info message -->
+    <node name="map_service_info" pkg="aloam_velodyne" type="enhanced_map_service" output="screen" 
+          args="--help" if="false">
+    </node>
+    
+</launch>
