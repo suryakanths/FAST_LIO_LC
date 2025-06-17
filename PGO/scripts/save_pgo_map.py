@@ -91,33 +91,33 @@ def main():
     # File format options
     parser.add_argument('--format', '-f', default='pcd', choices=['pcd', 'ply'],
                        help='Output file format (default: pcd)')
-    parser.add_argument('--binary', action='store_true',
+    parser.add_argument('--binary', action='store_true',default=True,
                        help='Save as binary format (smaller file size)')
     parser.add_argument('--intensity', action='store_true', default=True,
                        help='Include intensity values (default: true)')
     
-    # Outlier removal options
-    parser.add_argument('--outlier-removal', action='store_true',
+    # Outlier removal options - Conservative settings to preserve structure
+    parser.add_argument('--outlier-removal', action='store_true',default=False,
                        help='Enable statistical outlier removal')
-    parser.add_argument('--outlier-std-ratio', type=float, default=1.0,
-                       help='Standard deviation ratio for outlier removal (default: 1.0)')
-    parser.add_argument('--outlier-neighbors', type=int, default=50,
-                       help='Number of neighbors for outlier analysis (default: 50)')
-    
-    # Radius filter options
-    parser.add_argument('--radius-filter', action='store_true',
+    parser.add_argument('--outlier-std-ratio', type=float, default=2.5,
+                       help='Standard deviation ratio for outlier removal (default: 2.5 - conservative)')
+    parser.add_argument('--outlier-neighbors', type=int, default=20,
+                       help='Number of neighbors for outlier analysis (default: 20)')
+
+    # Radius filter options - More permissive to keep dense areas
+    parser.add_argument('--radius-filter', action='store_true',default=True,
                        help='Enable radius outlier removal')
-    parser.add_argument('--radius-search', type=float, default=0.2,
-                       help='Search radius for radius filtering (default: 0.2)')
-    parser.add_argument('--min-neighbors-radius', type=int, default=5,
-                       help='Minimum neighbors within radius (default: 5)')
-    
-    # Voxel filter options
-    parser.add_argument('--voxel-filter', action='store_true',
+    parser.add_argument('--radius-search', type=float, default=0.5,
+                       help='Search radius for radius filtering (default: 0.5)')
+    parser.add_argument('--min-neighbors-radius', type=int, default=10,
+                       help='Minimum neighbors within radius (default: 10 - keeps more points)')
+
+    # Voxel filter options - Smaller voxel size for denser map
+    parser.add_argument('--voxel-filter', action='store_true',default=True,
                        help='Enable voxel grid downsampling')
-    parser.add_argument('--voxel-size', type=float, default=0.1,
-                       help='Voxel grid leaf size in meters (default: 0.1)')
-    
+    parser.add_argument('--voxel-size', type=float, default=0.05,
+                       help='Voxel grid leaf size in meters (default: 0.02 - smaller for density)')
+
     # ROI options
     parser.add_argument('--use-roi', action='store_true',
                        help='Enable region of interest filtering')

@@ -199,6 +199,7 @@ double vizPathFrequency;
 double speedFactor;
 ros::Publisher pubLoopScanLocalRegisted;
 double loopFitnessScoreThreshold;
+double mapVizFilterSize;
 
 std::string padZeros(int val, int num_digits = 6) {
   std::ostringstream out;
@@ -1405,7 +1406,6 @@ void pubMap(void)
     
     bool cuda_success = false;
     if (cuda_available) {
-        double mapVizFilterSize = 0.4; // Get from parameter if needed
         cuda_success = cuda_processor.DownsamplePointCloud(laserCloudMapPGO, laserCloudMapPGODS, mapVizFilterSize);
         if (cuda_success) {
             *laserCloudMapPGO = *laserCloudMapPGODS;
@@ -1514,7 +1514,6 @@ int main(int argc, char **argv)
     downSizeFilterScancontext.setLeafSize(filter_size, filter_size, filter_size);
     downSizeFilterICP.setLeafSize(filter_size, filter_size, filter_size);
 
-    double mapVizFilterSize;
 	nh.param<double>("mapviz_filter_size", mapVizFilterSize, 0.4); // pose assignment every k frames 
     downSizeFilterMapPGO.setLeafSize(mapVizFilterSize, mapVizFilterSize, mapVizFilterSize);
 

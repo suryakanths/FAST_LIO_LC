@@ -1,0 +1,31 @@
+<launch>
+    <!-- Enhanced Map Service with CUDA-Optimized Filtering -->
+    <!-- This launch file demonstrates the CUDA-accelerated map filtering capabilities -->
+    
+    <arg name="enable_cuda" default="true" doc="Enable CUDA acceleration for map filtering"/>
+    <arg name="default_save_directory" default="/home/surya/workspaces/slam_ws/src/FAST_LIO_LC/maps/" doc="Default directory for saving maps"/>
+    
+    <!-- Enhanced Map Service Node -->
+    <node name="enhanced_map_service" pkg="aloam_velodyne" type="enhanced_map_service" output="screen">
+        
+        <!-- Default parameters for map filtering -->
+        <param name="default_save_directory" value="$(arg default_save_directory)"/>
+        <param name="default_voxel_size" value="0.1"/>
+        <param name="default_outlier_std_ratio" value="1.0"/>
+        <param name="default_outlier_neighbors" value="50"/>
+        <param name="default_radius_search" value="0.5"/>
+        <param name="default_min_neighbors" value="5"/>
+        
+        <!-- CUDA-specific parameters -->
+        <param name="enable_cuda_acceleration" value="$(arg enable_cuda)"/>
+        
+        <!-- Platform detection (automatically handled by the service) -->
+        <!-- Jetson optimizations will be applied automatically if running on Jetson platform -->
+        
+        <!-- Performance monitoring -->
+        <param name="log_performance_stats" value="true"/>
+        <param name="thermal_monitoring_enabled" value="true"/> <!-- For Jetson platforms -->
+        
+    </node>
+    
+</launch>

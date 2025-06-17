@@ -183,10 +183,44 @@ target_link_libraries(kittiHelper ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_
 add_executable(cloud_to_2d_map src/cloud_to_2d_map.cpp)
 target_link_libraries(cloud_to_2d_map ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
-# Enhanced Map Service with Outlier Removal
-add_executable(enhanced_map_service src/enhanced_map_service.cpp)
+# Enhanced Map Service with CUDA-Optimized Outlier Removal
+set(MAP_SERVICE_SOURCES
+  src/enhanced_map_service.cpp
+  src/cuda_map_filter_cpu.cc
+)
+
+# Add CUDA map filtering sources if CUDA is enabled
+if(USE_CUDA AND CUDA_FOUND)
+    list(APPEND MAP_SERVICE_SOURCES 
+        src/cuda_map_filter_kernels.cu 
+        src/cuda_map_filter_wrapper.cc
+    )
+endif()
+
+add_executable(enhanced_map_service ${MAP_SERVICE_SOURCES})
 add_dependencies(enhanced_map_service ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(enhanced_map_service ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+# Enhanced Map Service libraries
+set(MAP_SERVICE_LIBS ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+# Add CUDA libraries if enabled
+if(USE_CUDA AND CUDA_FOUND)
+    list(APPEND MAP_SERVICE_LIBS
+        ${CUDA_LIBRARIES}
+        ${CUDA_CUBLAS_LIBRARIES}
+    )
+    
+    # Set CUDA properties for enhanced map service
+    set_property(TARGET enhanced_map_service PROPERTY CUDA_STANDARD 14)
+    set_property(TARGET enhanced_map_service PROPERTY CUDA_STANDARD_REQUIRED ON)
+    
+    # Set specific compile flags for CUDA files
+    set_source_files_properties(src/cuda_map_filter_kernels.cu PROPERTIES 
+        COMPILE_FLAGS "-DCUDA_SEPARABLE_COMPILATION=ON"
+    )
+endif()
+
+target_link_libraries(enhanced_map_service ${MAP_SERVICE_LIBS})
 
 
 

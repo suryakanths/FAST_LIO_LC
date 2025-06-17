@@ -18,32 +18,32 @@
          Range: 0.05-0.5 meters
          Smaller values keep more close points but may include noise
          Larger values remove more noise but may lose important details -->
-    <param name="minimum_range" type="double" value="0.1"/>
+    <param name="minimum_range" type="double" value="0.5"/>
 
     <!-- Voxel grid resolution for line features in mapping
          Range: 0.1-0.5 meters
          Smaller values = more detailed map but higher computation
          Larger values = faster processing but less detail -->
-    <param name="mapping_line_resolution" type="double" value="0.2"/>
+    <param name="mapping_line_resolution" type="double" value="0.05"/>
     
     <!-- Voxel grid resolution for planar features in mapping
          Range: 0.2-1.0 meters
          Should be 2x mapping_line_resolution for optimal performance
          Affects map detail vs computational efficiency -->
-    <param name="mapping_plane_resolution" type="double" value="0.4"/>
+    <param name="mapping_plane_resolution" type="double" value="0.1"/>
 
     <!-- Filter size for map visualization in RViz
          Range: 0.05-0.2 meters
          Smaller values = more points displayed (slower visualization)
          Larger values = fewer points displayed (faster visualization) -->
-    <param name="mapviz_filter_size" type="double" value="0.1"/>
+    <param name="mapviz_filter_size" type="double" value="0.05"/>
 
     <!-- ==================== KEYFRAME SELECTION ==================== -->
     <!-- Minimum distance between keyframes for loop closure detection
          Range: 0.5-3.0 meters
          Smaller values = more keyframes (better accuracy, more computation)
          Larger values = fewer keyframes (faster processing, may miss loops) -->
-    <param name="keyframe_meter_gap" type="double" value="1"/> 
+    <param name="keyframe_meter_gap" type="double" value="3"/> 
     
     <!-- Minimum rotation angle between keyframes
          Range: 5.0-30.0 degrees
@@ -57,13 +57,13 @@
          Indoor/High Precision: 0.1-0.15 (fewer false positives)
          Outdoor/Robust: 0.3-0.4 (more tolerant to noise)
          Lower values = stricter matching, fewer false loops -->
-    <param name="sc_dist_thres" type="double" value="0.4"/>
+    <param name="sc_dist_thres" type="double" value="0.5"/>
     
     <!-- Maximum radius for Scan Context descriptor
          Indoor environments: 20-40 meters
          Outdoor environments: 60-80 meters
          Should match typical sensor range and environment size -->
-    <param name="sc_max_radius" type="double" value="20"/>
+    <param name="sc_max_radius" type="double" value="30"/>
     <!-- Uncomment for outdoor environments: -->
     <!-- <param name="sc_max_radius" type="double" value="80.0"/> -->
 
@@ -72,19 +72,19 @@
          Range: 1.0-5.0 meters
          Larger values find more potential loop candidates but increase computation
          Should be larger than typical odometry drift -->
-    <param name="historyKeyframeSearchRadius" value="1.5"/>
+    <param name="historyKeyframeSearchRadius" value="5.5"/>
     
     <!-- Minimum time difference for loop closure candidates
          Range: 10.0-60.0 seconds
          Prevents short-term loops, ensures meaningful loop closures
          Larger values = more conservative loop detection -->
-    <param name="historyKeyframeSearchTimeDiff" value=" 30.0"/>
+    <param name="historyKeyframeSearchTimeDiff" value="10.0"/>
     
     <!-- Maximum number of historical keyframes to consider for loop closure
          Range: 10-50 keyframes
          More keyframes = better loop detection but slower processing
          Balance between accuracy and computational efficiency -->
-    <param name="historyKeyframeSearchNum" value="20"/>
+    <param name="historyKeyframeSearchNum" value="50"/>
     
     <!-- Playback speed multiplier for processing recorded data
          Value 1.0 = real-time processing
@@ -96,13 +96,13 @@
          Range: 1.0-10.0 Hz
          Should be proportional to input data frequency
          Higher values = more frequent checks but more computation -->
-    <param name="loopClosureFrequency" value="4.0"/>
+    <param name="loopClosureFrequency" value="1.0"/>
     
     <!-- Frequency of pose graph optimization updates (Hz)
          Range: 0.5-5.0 Hz
          Lower than loop closure frequency for computational efficiency
          Higher values = more responsive but more CPU intensive -->
-    <param name="graphUpdateFrequency" value="2.0"/>
+    <param name="graphUpdateFrequency" value="0.5"/>
     
     <!-- Number of optimization iterations per graph update
          Range: 3-10 iterations
@@ -121,14 +121,14 @@
          Range: 1-20 Hz
          Lower values save computation, higher values provide smoother visualization
          Adjust based on visualization needs vs performance -->
-    <param name="vizmapFrequency" value="10"/>
+    <param name="vizmapFrequency" value="1"/>
     
     <!-- ICP fitness score threshold for accepting loop closures
          Range: 0.1-0.5
          Lower values = stricter ICP matching, fewer false loops
          Higher values = more permissive matching, may accept poor alignments
          Typical range: 0.2-0.4 depending on environment complexity -->
-    <param name="loopFitnessScoreThreshold" value="0.3"/>
+    <param name="loopFitnessScoreThreshold" value="0.1"/>
     
     <!-- ==================== SENSOR CONFIGURATION ==================== -->
     <!-- LiDAR sensor type specification
